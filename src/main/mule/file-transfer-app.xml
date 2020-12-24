@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:custom-metrics="http://www.mulesoft.org/schema/mule/custom-metrics" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:cloudhub="http://www.mulesoft.org/schema/mule/cloudhub"
+	xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:sftp="http://www.mulesoft.org/schema/mule/sftp" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/sftp http://www.mulesoft.org/schema/mule/sftp/current/mule-sftp.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd
+http://www.mulesoft.org/schema/mule/cloudhub http://www.mulesoft.org/schema/mule/cloudhub/current/mule-cloudhub.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/custom-metrics http://www.mulesoft.org/schema/mule/custom-metrics/current/mule-custom-metrics.xsd">
+	<sftp:config name="Source_SFTP_Config" doc:name="SFTP Config" doc:id="0b70a800-e431-42d9-9ece-7b4b459db26c" >
+		<sftp:connection workingDir="/upload" host="localhost" username="mule" password="xxxx"/>
+	</sftp:config>
+	<sftp:config name="Dest_SFTP_Config" doc:name="SFTP Config" doc:id="1f5bb101-6cdf-4f6b-9604-05262b6edac7" >
+		<sftp:connection workingDir="/upload" host="localhost" username="mule" password='xxxx'/>
+	</sftp:config>
+	<sftp:matcher name="FileMatcher" doc:name="Matcher" doc:id="12ab2745-99a0-4b07-b64a-52acf596db7a" timeUnit="SECONDS" filenamePattern="*" directories="EXCLUDE" symLinks="EXCLUDE"/>
+	<flow name="file-transfer-appFlow" doc:id="325c2c68-6812-49ed-a5ce-966a52267f41" >
+		<sftp:listener doc:name="On New or Updated File" doc:id="a80a0547-79cd-4452-8f9e-445b7f67a797" config-ref="Source_SFTP_Config" recursive="false" timeBetweenSizeCheck="10" timeBetweenSizeCheckUnit="SECONDS" matcher="FileMatcher" directory="/upload" applyPostActionWhenFailed="false">
+			<non-repeatable-stream />
+			<reconnect />
+			<scheduling-strategy >
+				<fixed-frequency frequency="5" timeUnit="MINUTES"/>
+			</scheduling-strategy>
+		</sftp:listener>
+		<ee:transform doc:name="Set up variables" doc:id="35e48f2f-bc9e-4a18-b110-f518f484f630" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="srcFileSize" ><![CDATA[%dw 2.0
+output application/java
+---
+attributes.size]]></ee:set-variable>
+				<ee:set-variable variableName="startTime" ><![CDATA[%dw 2.0
+output application/java
+---
+now() as Number]]></ee:set-variable>
+				<ee:set-variable variableName="fileName" ><![CDATA[%dw 2.0
+output application/java
+---
+attributes.fileName]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<logger level="INFO" doc:name="Log got file" doc:id="15250670-20dd-4491-b87f-1794264b3f21" message="#['Found file ' ++ attributes.path ++ ', size: ' ++ attributes.size]"/>
+		<choice doc:name="Check file type" doc:id="93eca0f7-1861-41f9-a741-b69e26145085" >
+			<when expression="#[vars.fileName as String endsWith 'csv']">
+				<ee:transform doc:name="Transform csv to json data" doc:id="54f028b7-671b-4c2d-b126-a9088d525a8d">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload map ( payload01 , indexOfPayload01 ) -> {
+	name: payload01."Order ID",
+	units: payload01."Units Sold" as Number,
+	unitPrice: payload01."Unit Price" as Number
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+				<logger level="INFO" doc:name="Log csv file" doc:id="793a1273-dd42-433c-9b91-372b981b92ff" message="CSV file"/>
+				<sftp:write doc:name="Write csv file" doc:id="5f59161d-d546-4159-a54c-e54538ea5f00" config-ref="Dest_SFTP_Config" path="#[vars.fileName as String replace '.csv' with('.json')]" createParentDirectories="false" >
+					<reconnect />
+				</sftp:write>
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="Log binary file" doc:id="4902076e-ee44-439b-b185-de99f3e771e0" message="Binary file"/>
+				<sftp:write doc:name="Write binary file" doc:id="215d6648-c21d-423a-994e-fdc83876667d" config-ref="Dest_SFTP_Config" createParentDirectories="false" path="#[vars.fileName]">
+			<reconnect />
+		</sftp:write>
+			</otherwise>
+		</choice>
+		<logger level="INFO" doc:name="Log writtten file" doc:id="0886c56e-b279-4c94-b69a-854b9abf6516" message="#['Written file: ' ++ attributes.fileName ++ ', size: ' ++ attributes.size]"/>
+		<choice doc:name="Check binary file src and dest size same" doc:id="0f9255b7-b986-4ab7-bfef-c3ba0de0fabd" >
+			<when expression="#[(vars.srcFileSize != attributes.size) and not (attributes.fileName endsWith '.json')]">
+				<raise-error doc:name="Raise file integrity error" doc:id="54e3add8-c5dc-4000-bff1-7c5226526cc2" type="VALIDATION"/>
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="Log metrics" doc:id="78558ad2-d85a-47f7-b842-19cf19d78788" message="#['Passed file size check. Duration: ' ++ (now() as Number - vars.startTime) ++ 's Rate: ' ++ (vars.srcFileSize / ((now() as Number - vars.startTime) / 1000))]"/>
+				<custom-metrics:send doc:name="Create custom metrics" doc:id="4d21926d-8d9c-4296-acc4-6f651f2c5dad" metricName="FileTransfer">
+					<custom-metrics:dimensions >
+						<custom-metrics:dimension dimensionName="File" value="#[vars.fileName]" />
+					</custom-metrics:dimensions>
+					<custom-metrics:facts >
+						<custom-metrics:fact factName="TransferTime" value="#[(now() as Number - vars.startTime) / 1000]" />
+						<custom-metrics:fact factName="FileSize" value="#[vars.srcFileSize]" />
+						<custom-metrics:fact factName="TransferRate" value="#[vars.srcFileSize / (now() as Number - vars.startTime)]" />
+					</custom-metrics:facts>
+				</custom-metrics:send>
+			</otherwise>
+		</choice>
+	</flow>
+</mule>

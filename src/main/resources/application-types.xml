@@ -1,0 +1,45 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<types:mule xmlns:types="http://www.mulesoft.org/schema/mule/types">
+  <types:catalog>
+    <types:type name="sales-orders" format="csv">
+      <types:shape format="weave" example="examples/sales-orders.csv"><![CDATA[%dw 2.0
+
+type sales_orders = Array<{|  Region: String,   Country: String,   "Item Type": String,   "Sales Channel": String,   "Order Priority": String,   "Order Date": String,   "Order ID": String,   "Ship Date": String,   "Units Sold": String,   "Unit Price": String,   "Unit Cost": String,   "Total Revenue": String,   "Total Cost": String,   "Total Profit": String|}> {"isQuotedString": "false",
+"header": "true",
+"headerLineNumber": "0"}
+
+]]></types:shape>
+      <types:properties>
+        <types:property name="headerLineNumber" value="0"/>
+        <types:property name="header" value="true"/>
+        <types:property name="isQuotedString" value="false"/>
+      </types:properties>
+    </types:type>
+    <types:type name="orders" format="json">
+      <types:shape format="weave" example="examples/orders.json"><![CDATA[%dw 2.0
+
+type orders = {|
+  name: String, 
+  units: Number {"typeId": "int"}, 
+  unitPrice: Number {"typeId": "double"}
+|} {"example": "{\\\"name\\\":\\\"iphone\\\",\\\"units\\\":3,\\\"unitPrice\\\":567.99}"}
+
+]]></types:shape>
+    </types:type>
+  </types:catalog>
+  <types:enrichment select="#35e48f2f-bc9e-4a18-b110-f518f484f630"/>
+  <types:enrichment select="#54f028b7-671b-4c2d-b126-a9088d525a8d">
+    <types:processor-declaration>
+      <types:input-event>
+        <types:message>
+          <types:payload type="sales-orders"/>
+        </types:message>
+      </types:input-event>
+      <types:output-event>
+        <types:message>
+          <types:payload type="orders[]"/>
+        </types:message>
+      </types:output-event>
+    </types:processor-declaration>
+  </types:enrichment>
+</types:mule>
